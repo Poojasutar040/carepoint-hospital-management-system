@@ -6,8 +6,7 @@ import { sampleData } from "./sample-data";
 import type { HmsData } from "./types";
 
 const API_URL =
-  "https://script.google.com/macros/s/AKfycbwsm7nUBl1by-KITHBPRJlMdhQiZYQ_92yS5sAVNc01I1tj4R5qlbMLERVJJ3yzhvgo-A/exec";
-
+ "https://script.google.com/macros/s/AKfycbwsm7nUBl1by-KITHBPRJlMdhQiZYQ_92yS5sAVNc01I1tj4R5qlbMLERVJJ3yzhvgo-A/exec"
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
@@ -19,13 +18,12 @@ function notify() {
   listeners.forEach((listener) => listener());
 }
 
-// Read Google Sheets using the JSONP support in Code.gs.
 function loadFromSheets(): Promise<HmsData> {
   return new Promise((resolve, reject) => {
     const callbackName = "__carePointSheetsCallback";
-    const w = window as any;
-
+    const w = window as unknown as Record<string, any>;
     const script = document.createElement("script");
+
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error("Google Sheets read timed out."));
@@ -53,38 +51,18 @@ function loadFromSheets(): Promise<HmsData> {
       reject(new Error("Could not read Google Sheets."));
     };
 
-    script.src =
-      API_URL + "?callback=" + encodeURIComponent(callbackName);
-
+    script.src = API_URL + "?callback=" + encodeURIComponent(callbackName);
     document.head.appendChild(script);
   });
 }
 
-// Google Apps Script writes are cross-origin. no-cors does not
-// expose the server response, so a successful fetch is not proof
-// that the spreadsheet was updated.
 async function saveToSheets(data: HmsData) {
   await fetch(API_URL, {
     method: "POST",
     mode: "no-cors",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify({
-      action: "save",
-      data,
-    }),
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "save", data }),
   });
-}
-
-function isEmpty(data: HmsData) {
-  return (
-    data.patients.length === 0 &&
-    data.doctors.length === 0 &&
-    data.appointments.length === 0 &&
-    data.beds.length === 0 &&
-    data.bills.length === 0
-  );
 }
 
 function ensureLoaded() {
@@ -95,30 +73,10 @@ function ensureLoaded() {
   loadingPromise = (async () => {
     try {
       const remoteData = await loadFromSheets();
-
-      if (isEmpty(remoteData)) {
-        // Populate the empty spreadsheet with fictional demo records.
-        state = sampleData;
-        notify();
-        await saveToSheets(state);
-
-        // Verify that the write actually reached Google Sheets.
-        const check = await loadFromSheets();
-
-        if (isEmpty(check)) {
-          throw new Error(
-            "The spreadsheet is still empty after the save attempt."
-          );
-        }
-
-        state = check;
-      } else {
-        state = remoteData;
-      }
+      state = remoteData;
     } catch (error) {
       console.error("Google Sheets connection failed:", error);
-      // Keep the demo usable if the connection fails.
-      // Do not assume remote changes were saved.
+      // Keep current data visible, but do not assume it was saved.
     }
 
     notify();
@@ -130,12 +88,11 @@ export function getData() {
   return state;
 }
 
-export function update(fn: (d: HmsData) => HmsData) {
+export function update(fn: (data: HmsData) => HmsData) {
   ensureLoaded();
   state = fn(state);
   notify();
 
-  // Wait for the initial spreadsheet load before saving edits.
   void (async () => {
     if (loadingPromise) await loadingPromise;
 
